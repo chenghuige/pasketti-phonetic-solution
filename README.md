@@ -118,6 +118,7 @@ There are two practical usage modes:
 
 * **Released inference bundle / `make pack` path:** no retraining is required. You mainly need enough disk to store the competition data plus the published checkpoints downloaded from Hugging Face. `make smoke` is CPU-only.
 * **Full training / reproduction from scratch:** use a high-VRAM GPU. In the original runs, most training was done on a single 5090 32 GB, while some WavLM-Large-related runs used a single RTX PRO 6000 96 GB-class GPU.
+* **Online inference for the final release pipeline:** the original online inference / release-time bundle generation was run on a single A100 80 GB GPU.
 
 For the full training path, plan for:
 
