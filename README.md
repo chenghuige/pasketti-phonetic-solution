@@ -4,6 +4,8 @@
 > DrivenData [Pasketti Speech Recognition Challenge](https://www.drivendata.org/competitions/),
 > public LB **0.2539**, private LB **0.2559**.
 
+[GitHub code release](https://github.com/chenghuige/pasketti-phonetic-solution) | [Hugging Face weights](https://huggingface.co/huigecheng/pasketti-phonetic-weights) | [Release notes](docs/RELEASE.md)
+
 This repository is intentionally minimal: it bundles the exact training
 and inference code used to produce the leaderboard score, packaged so it
 can be run end-to-end without any of the author's internal libraries. A
@@ -15,6 +17,20 @@ The deeper write-up of the modeling choices is in
 [`docs/SOLUTION.md`](docs/SOLUTION.md). The word-track solution is **not**
 included.
 
+## Release status
+
+This public release is split into two artifacts:
+
+| Artifact | Contents | Link |
+| --- | --- | --- |
+| GitHub repository | Training code, inference code, packaging scripts, notebook demo, compatibility shims | [chenghuige/pasketti-phonetic-solution](https://github.com/chenghuige/pasketti-phonetic-solution) |
+| Hugging Face model repo | Final 11-model online checkpoints plus 5-fold CatBoost reranker artifacts | [huigecheng/pasketti-phonetic-weights](https://huggingface.co/huigecheng/pasketti-phonetic-weights) |
+
+If you want the exact published inference path, you do not need to retrain
+the ensemble from scratch. Download the released weights, stage the
+competition data under `../input/pasketti/`, and build the submission
+bundle directly.
+
 ---
 
 ## 1. Solution at a glance
@@ -23,7 +39,7 @@ included.
 | -------------------------- | ---------------------------------------------------------------- |
 | Acoustic backbones         | NeMo Parakeet-TDT-0.6B (TDT + CTC), WavLM-Large (CTC)            |
 | Output units               | IPA phoneme set (dual-head IPA + word-BPE during training)       |
-| Augmentation               | SpecAugment, concat-mix (up to 8 clips), light noise overlay     |
+| Augmentation               | concat-mix (up to 8 clips), light noise overlay     |
 | Decoder                    | Beam-search CTC + TDT, top-10 N-best per model                   |
 | Model averaging            | EMA (decay 0.999) saved as the final checkpoint                  |
 | Ensemble                   | 11 models → cross-model CTC log-prob rescore → CatBoost LambdaRank |
@@ -80,6 +96,21 @@ so that the project files can keep using their original imports
 ---
 
 ## 3. Reproducing the result
+
+### 3.0 Fast path: reproduce the released inference bundle
+
+For most users, this is the intended path:
+
+```bash
+make setup
+make data
+HF_REPO_ID=huigecheng/pasketti-phonetic-weights bash scripts/download_weights.sh
+make pack
+```
+
+This downloads the released online checkpoints into `working/online/17/`
+and the CatBoost reranker artifacts into `src/tree_reranker/`, then builds
+`submission.zip`.
 
 ### 3.1 Hardware
 
@@ -141,15 +172,20 @@ automatically — no edits to `submit.py` are needed.
 
 ---
 
-## 4. Pre-trained weights
+## 4. Published weights and reranker artifacts
 
-> **Not published yet.** Weight checkpoints (model.pt + flags.json per
-> model directory) are required to reproduce the final leaderboard score
-> without retraining. Until a public download URL is available, the only
-> fully reproducible path is to retrain all 11 models from scratch
-> (~1 GPU-day per model on an A100).
+The final released checkpoints and reranker artifacts are public at:
 
-When the weights are published, place each one under:
+* [huigecheng/pasketti-phonetic-weights](https://huggingface.co/huigecheng/pasketti-phonetic-weights)
+
+The supported download flow is:
+
+```bash
+python -m pip install -r requirements.txt
+HF_REPO_ID=huigecheng/pasketti-phonetic-weights bash scripts/download_weights.sh
+```
+
+After that, the repo should contain:
 
 ```
 working/online/17/<model_name>/model.pt
@@ -168,19 +204,7 @@ src/tree_reranker/tree_cb_fold4/model.pkl
 
 where `<model_name>` matches an entry in `src/models.txt`.
 
-Recommended publication layout:
-
-* Put the large neural-network checkpoints in a separate Hugging Face model
-  repository, for example `huigecheng/pasketti-phonetic-weights`, then tell
-  users to download/symlink them into `working/online/17/`.
-* Keep this GitHub repository focused on code plus the small reranker
-  artifacts. The CatBoost reranker files are tiny compared with the ASR
-  checkpoints, so committing `src/tree_reranker/` directly to GitHub is fine.
-* If you prefer to keep everything out of git, store `src/tree_reranker/` in
-  the same cloud bundle as the model weights and extract it into the repo
-  before running `make pack`.
-
-Recommended Hugging Face repo layout:
+The current Hugging Face repo layout is:
 
 ```
 online/17/<model_name>/model.pt
@@ -196,28 +220,44 @@ tree_reranker/tree_cb_fold3/model.pkl
 tree_reranker/tree_cb_fold4/model.pkl
 ```
 
-Once the Hugging Face repo is live, the intended download flow is:
+To assemble the official DrivenData runtime bundle from the public release:
 
 ```bash
-python -m pip install -r requirements.txt
 HF_REPO_ID=huigecheng/pasketti-phonetic-weights bash scripts/download_weights.sh
 make pack
 ```
 
-To stage and upload the exact final 11-model bundle from the original training
-workspace to Hugging Face, use:
+Maintainers can re-stage and re-upload the exact final 11-model bundle from
+the original training workspace to Hugging Face with:
 
 ```bash
 HF_REPO_ID=huigecheng/pasketti-phonetic-weights UPLOAD_NOW=1 bash scripts/upload_hf_weights.sh
 ```
 
-If you want to keep the reranker artifacts in GitHub instead of Hugging Face,
-commit the whole `src/tree_reranker/` directory and the download script will
-still work for the neural-network checkpoints only.
+The GitHub repository intentionally does not commit the large ASR
+checkpoints, so the Hugging Face model repo is the authoritative source for
+released weights.
+
+## 5. Release contents
+
+This public release includes:
+
+* standalone training and inference code with no dependency on the author's
+  internal monorepo;
+* the exact final 11-model ensemble list in `src/models.txt`;
+* packaging scripts for the DrivenData submission container;
+* a helper script to download the released checkpoints and reranker artifacts;
+* a notebook demo for running inference locally.
+
+This public release does not include:
+
+* the separate word-track solution;
+* the original private training monorepo;
+* raw competition data.
 
 ---
 
-## 5. License
+## 6. License
 
 * Project source code: MIT (see `LICENSE`).
 * Pre-trained NeMo Parakeet-TDT-0.6B and WavLM-Large weights: see their

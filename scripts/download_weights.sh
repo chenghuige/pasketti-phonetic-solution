@@ -23,7 +23,7 @@ Expected Hugging Face repo layout:
   online/17/<model_name>/flags.json
   online/17/<model_name>/nemo_model_slim.nemo
   tree_reranker/reranker_meta.json
-  tree_reranker/tree_cb_fold0/model.json
+  tree_reranker/tree_cb_fold0/model.pkl
   ...
 EOF
 }
