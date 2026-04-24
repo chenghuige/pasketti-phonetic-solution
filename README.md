@@ -114,7 +114,13 @@ and the CatBoost reranker artifacts into `src/tree_reranker/`, then builds
 
 ### 3.1 Hardware
 
-* GPU with ≥ 24 GB VRAM (training was done on a single A100-80GB).
+There are two practical usage modes:
+
+* **Released inference bundle / `make pack` path:** no retraining is required. You mainly need enough disk to store the competition data plus the published checkpoints downloaded from Hugging Face. `make smoke` is CPU-only.
+* **Full training / reproduction from scratch:** use a high-VRAM GPU. In the original runs, most training was done on a single 5090 32 GB, while some WavLM-Large-related runs used a single RTX PRO 6000 96 GB-class GPU.
+
+For the full training path, plan for:
+
 * ~80 GB disk for raw audio + intermediate features.
 * CUDA 12.1 / 12.4 with cuDNN.
 
