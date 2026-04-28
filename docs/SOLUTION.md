@@ -68,13 +68,13 @@ pasketti-phonetic/
     └── online/9/<model_name>/         # Full-train (all data) outputs
 ```
 
-**Shared utility libraries** (in `pikachu/utils/` and `pikachu/third/`):
+**Compatibility utilities** (bundled in this repository under `src/_compat/`):
 
 | Library | Path | Description |
 |---|---|---|
-| `gezi` (gz) | `utils/gezi` | General utilities (Timer, logging, FLAGS, etc.) |
-| `melt` (mt) | `utils/melt` | Training framework (`mt.fit` executes the training loop) |
-| `lele` | `utils/lele` | PyTorch utilities, layers, losses |
+| `gezi` (gz) | `src/_compat/gezi` | Minimal public shim for Timer, logging, FLAGS/config restore, globals, fold setup, and checkpoint loading |
+| `melt` (mt) | `src/_compat/melt` | Minimal public shim for `mt.init`, `mt.epoch`, and global state helpers; training uses `src/train_loop.py` instead of `mt.fit` |
+| `lele` | `src/_compat/lele` | Minimal public shim for optimizer parameter groups, samplers, bucket batching, and checkpoint loading |
 
 ---
 
@@ -304,11 +304,24 @@ download URL has not been published yet.
 
 ---
 
-## Write-up: Model Documentation
+## II. Basic Information for Winner Announcement
+
+- **Name**: ChengHuige
+- **Hometown**: Beijing, China
+- **Social handle / URL**: https://github.com/chenghuige
+- **Picture**: GitHub avatar (https://github.com/chenghuige.png) — also available on request
+
+---
+
+## III. Write-up: Model Documentation
 
 ### 1. Who are you?
 
-Chenghuige — Machine Learning Engineer, experienced in Kaggle/DrivenData competitions. All code in this project was written with the assistance of GPT-4 and Claude (Copilot agents); I focused on experiment design, strategy, and iteration direction.
+I am **ChengHuige**, a software engineer based in Beijing, China.
+
+I have participated in many Kaggle competitions and am a **Kaggle Grandmaster**, with a peak ranking of **#7** worldwide. I have also competed in and won numerous domestic competitions in China, including **1st place in the Tencent WBDC 2021** (We-Chat Big Data Challenge).
+
+For this challenge, all source code was authored with the assistance of GPT-4 and Claude (Copilot coding agents); I focused on experiment design, strategy, ablation analysis, and iteration direction.
 
 ### 2. Motivation
 
@@ -410,14 +423,23 @@ catboost_model.fit(X_train, y_train, group_id=group_train)
 
 ### 6. Machine Specs & Time
 
-- **CPU**: AMD EPYC (remote server, many cores)
-- **GPU (NeMo training)**: NVIDIA RTX 4090 / 5090
-- **GPU (WavLM training)**: NVIDIA RTX Pro 6000
-- **Memory**: 128 GB system RAM
-- **OS**: Ubuntu 22.04 Linux
-- **NeMo train duration**: ~1-2 hours per model (5 epochs, 4090)
-- **WavLM train duration**: ~15-25 hours per model (3-5 epochs, Pro 6000)
-- **Inference duration**: ~30-56 min on competition A100 80GB
+Training was performed across a mix of a local workstation and rented cloud GPUs:
+
+| Resource | Local workstation | Rented (NeMo training) | Rented (WavLM training) |
+|---|---|---|---|
+| **CPU** | Intel(R) Xeon(R) Platinum 8336C @ 2.30 GHz | (cloud, comparable Xeon class) | (cloud, comparable Xeon class) |
+| **GPU** | NVIDIA RTX 4090 (24 GB) | NVIDIA RTX 5090 (32 GB) | NVIDIA RTX PRO 6000 (96 GB) |
+| **System RAM** | 1024 GB | 62 GB | 120 GB |
+| **OS** | Ubuntu 22.04 LTS | Ubuntu 22.04 LTS | Ubuntu 22.04 LTS |
+
+**Train duration** (per single model):
+- NeMo Parakeet-TDT-0.6B: **~1-2 hours** (5 epochs, RTX 4090/5090)
+- WavLM-Large: **~15-25 hours** (3-5 epochs, RTX PRO 6000)
+- Total wall-clock for the 11-model ensemble: **~100-150 GPU hours**
+- CatBoost reranker (5-fold): **~30 min** (CPU)
+
+**Inference duration**:
+- Final 11-model ensemble + CatBoost reranker on the competition runtime (NVIDIA A100 80 GB): **~30-56 minutes** for the full test set.
 
 ### 7. Caveats & Known Issues
 

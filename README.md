@@ -6,6 +6,17 @@
 
 [GitHub code release](https://github.com/chenghuige/pasketti-phonetic-solution) | [Hugging Face weights](https://huggingface.co/huigecheng/pasketti-phonetic-weights) | [Release notes](docs/RELEASE.md)
 
+## Author / Submission information
+
+| Field | Value |
+| --- | --- |
+| **Name** | ChengHuige |
+| **Hometown** | Beijing, China |
+| **Social handle / URL** | https://github.com/chenghuige |
+| **Picture** | GitHub avatar at https://github.com/chenghuige.png |
+
+The full Section III write-up (12 questions, machine specs, charts, code highlights, etc.) lives in [`docs/SOLUTION.md`](docs/SOLUTION.md).
+
 This repository is intentionally minimal: it bundles the exact training
 and inference code used to produce the leaderboard score, packaged so it
 can be run end-to-end without any of the author's internal libraries. A
@@ -39,7 +50,7 @@ bundle directly.
 | -------------------------- | ---------------------------------------------------------------- |
 | Acoustic backbones         | NeMo Parakeet-TDT-0.6B (TDT + CTC), WavLM-Large (CTC)            |
 | Output units               | IPA phoneme set (dual-head IPA + word-BPE during training)       |
-| Augmentation               | concat-mix (up to 8 clips), light noise overlay     |
+| Augmentation               | concat-mix (up to 8 clips), light classroom noise overlay     |
 | Decoder                    | Beam-search CTC + TDT, top-10 N-best per model                   |
 | Model averaging            | EMA (decay 0.999) saved as the final checkpoint                  |
 | Ensemble                   | 11 models → cross-model CTC log-prob rescore → CatBoost LambdaRank |
