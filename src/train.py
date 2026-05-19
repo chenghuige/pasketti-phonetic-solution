@@ -34,11 +34,22 @@ _HERE = Path(__file__).resolve().parent
 _COMPAT = _HERE / '_compat'
 if _COMPAT.exists():
   sys.path.insert(0, str(_COMPAT))
+_RUNTIME_CANDIDATES = [
+    os.environ.get('PASKETTI_RUNTIME_DIR'),
+    _HERE.parents[1] / 'childrens-speech-recognition-runtime',
+    _HERE.parent.parent / 'childrens-speech-recognition-runtime',
+]
+for _runtime_dir in _RUNTIME_CANDIDATES:
+  if _runtime_dir and Path(_runtime_dir).exists():
+    sys.path.insert(0, str(Path(_runtime_dir).resolve()))
+    break
 sys.path.insert(0, str(_HERE.parent))   # so ``import src`` works
 sys.path.insert(0, str(_HERE))          # so ``from src.xxx`` resolves intra-package
 
 # Quiet down noisy third-party libs early.
 os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
+os.environ.setdefault('TF_CUDA_VISIBLE_DEVICES', '-1')
+os.environ.setdefault('JAX_PLATFORMS', 'cpu')
 os.environ.setdefault('TRANSFORMERS_VERBOSITY', 'error')
 os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
 os.environ.setdefault('HF_HUB_OFFLINE', '0')
@@ -92,11 +103,12 @@ def main(_argv):
       scheduler=scheduler,
       eval_fn=ev.evaluate,
       model_dir=FLAGS.model_dir,
-      epochs=FLAGS.ep,
+      epochs=float(getattr(FLAGS, 'exit_epoch', 0.0) or FLAGS.ep),
       grad_accum_steps=getattr(FLAGS, 'acc_steps', 1) or 1,
-      use_amp=bool(getattr(FLAGS, 'fp16', True)),
+      use_amp=bool(getattr(FLAGS, 'fp16', True) or getattr(FLAGS, 'bfloat16', False)),
       ema_decay=getattr(FLAGS, 'ema_decay', None),
-      grad_clip=getattr(FLAGS, 'grad_clip', None),
+      grad_clip=(getattr(FLAGS, 'grad_clip', None)
+                 or (1.0 if getattr(FLAGS, 'clip_grads', False) else None)),
   )
 
   gz.logger.info(f'Training complete in {timer.elapsed_minutes():.1f} min')

@@ -62,21 +62,23 @@ def build_optimizer(model: torch.nn.Module, train_dl: Iterable):
   backbone = getattr(model, 'backbone', None) or getattr(model, 'encoder', None)
   param_groups = le.get_optimizer_params(
       model,
-      backbone_lr=getattr(F, 'lr', None),
-      base_lr=getattr(F, 'head_lr', None) or getattr(F, 'lr', None),
+      backbone_lr=(getattr(F, 'lr', None) or getattr(F, 'learning_rate', None)),
+      base_lr=(getattr(F, 'head_lr', None)
+               or getattr(F, 'lr', None)
+               or getattr(F, 'learning_rate', None)),
       weight_decay=True,
       weight_decay_val=float(getattr(F, 'weight_decay', 0.01) or 0.01),
       backbone=backbone,
   )
 
-  lr = float(getattr(F, 'lr', None) or 1e-4)
+  lr = float(getattr(F, 'lr', None) or getattr(F, 'learning_rate', None) or 1e-4)
   optimizer = AdamW(param_groups, lr=lr,
                     betas=(0.9, 0.999),
                     eps=1e-8)
 
-  epochs = int(getattr(F, 'ep', 1) or 1)
+  epochs = float(getattr(F, 'exit_epoch', 0.0) or getattr(F, 'ep', 1) or 1)
   steps_per_epoch = len(train_dl)
-  total_steps = steps_per_epoch * epochs
+  total_steps = max(1, int(math.ceil(steps_per_epoch * epochs)))
   warmup_ratio = float(getattr(F, 'warmup_proportion', 0.1) or 0.1)
   warmup_steps = int(total_steps * warmup_ratio)
   scheduler = LambdaLR(optimizer, _cosine_warmup_schedule(warmup_steps, total_steps))
@@ -182,15 +184,46 @@ def train(*,
   FLAGS are dumped to ``<model_dir>/flags.json``, and ``metrics.csv`` is
   written next to it with the validation metrics.
   """
-  device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+  from absl import flags as _flags
+  F = _flags.FLAGS
+  requested_device = str(getattr(F, 'device', '') or '').lower()
+  cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES', '<unset>')
+  if requested_device.startswith('cuda') or requested_device == 'gpu':
+    # Match the original melt/mt.fit behavior: with CUDA_VISIBLE_DEVICES set,
+    # visible GPU 0 is the selected single card.  Avoid a preflight
+    # torch.cuda.is_available() check because on degraded multi-GPU machines it
+    # can pessimistically return false before set_device/model.to gets a chance.
+    device = torch.device('cuda:0')
+    try:
+      torch.cuda.set_device(device)
+      logger.info(
+          f'Using CUDA device {device} (CUDA_VISIBLE_DEVICES={cuda_visible}, '
+          f'name={torch.cuda.get_device_name(device)})')
+    except Exception as e:
+      raise RuntimeError(
+          f'CUDA was explicitly requested with --device={requested_device}, but '
+          f'PyTorch could not select cuda:0 (CUDA_VISIBLE_DEVICES={cuda_visible}). '
+          f'{type(e).__name__}: {e}') from e
+  elif torch.cuda.is_available():
+    device = torch.device('cuda:0')
+    torch.cuda.set_device(device)
+    logger.info(
+        f'Using CUDA device {device} (CUDA_VISIBLE_DEVICES={cuda_visible}, '
+        f'name={torch.cuda.get_device_name(device)})')
+  else:
+    device = torch.device('cpu')
+    logger.warning(
+        f'CUDA is not available in this process (CUDA_VISIBLE_DEVICES={cuda_visible}); '
+        'falling back to CPU. Pass --device=cuda to fail fast instead.')
   model = model.to(device)
   model_dir = Path(model_dir)
   model_dir.mkdir(parents=True, exist_ok=True)
 
   # AMP — bf16 by default for SSL backbones (more numerically stable than fp16),
   # otherwise fp16. Decision matches the upstream defaults.
-  amp_dtype = torch.bfloat16 if (use_amp and torch.cuda.is_bf16_supported()) else torch.float16
-  scaler = torch.cuda.amp.GradScaler(enabled=use_amp and amp_dtype is torch.float16)
+  amp_enabled = bool(use_amp and device.type == 'cuda')
+  amp_dtype = torch.bfloat16 if (amp_enabled and torch.cuda.is_bf16_supported()) else torch.float16
+  scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled and amp_dtype is torch.float16)
 
   ema: _EMA | None = None
   if ema_decay is not None and ema_decay > 0:
@@ -203,19 +236,34 @@ def train(*,
   global_step = 0
   history = []
 
-  for epoch in range(epochs):
+  steps_per_epoch = len(train_dl)
+  total_train_batches = max(1, int(math.ceil(steps_per_epoch * float(epochs))))
+  max_epochs = max(1, int(math.ceil(float(epochs))))
+
+  for epoch in range(max_epochs):
+    epoch_start_batch = epoch * steps_per_epoch
+    epoch_target_batches = min(steps_per_epoch, total_train_batches - epoch_start_batch)
+    if epoch_target_batches <= 0:
+      break
     gz.set('epoch', float(epoch))
     model.train()
-    pbar = tqdm(train_dl, desc=f'epoch {epoch + 1}/{epochs}', dynamic_ncols=True)
+    pbar = tqdm(
+        train_dl,
+        desc=f'epoch {epoch + 1}/{epochs:g}',
+        total=epoch_target_batches,
+        dynamic_ncols=True,
+    )
     optimizer.zero_grad(set_to_none=True)
     epoch_loss, n_seen = 0.0, 0
     t0 = time.time()
 
     for it, raw in enumerate(pbar):
+      if it >= epoch_target_batches:
+        break
       inputs, labels = _normalize_batch(raw)
       inputs = _to_device(inputs, device)
 
-      with torch.autocast(device_type='cuda', dtype=amp_dtype, enabled=use_amp):
+      with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_enabled):
         res = model(inputs)
         loss = loss_fn(res, labels, inputs,
                         step=global_step, epoch=epoch + it / max(1, len(train_dl)),
@@ -249,10 +297,10 @@ def train(*,
       pbar.set_postfix(loss=f'{epoch_loss / max(1, n_seen):.4f}',
                        lr=f'{scheduler.get_last_lr()[0]:.2e}')
 
-      gz.set('epoch', epoch + (it + 1) / max(1, len(train_dl)))
+      gz.set('epoch', epoch + (it + 1) / max(1, steps_per_epoch))
 
     logger.info(
-        f'Epoch {epoch + 1}/{epochs} done in {(time.time() - t0) / 60:.1f} min, '
+        f'Epoch {epoch + 1}/{epochs:g} done in {(time.time() - t0) / 60:.1f} min, '
         f'avg_loss={epoch_loss / max(1, n_seen):.4f}'
     )
     history.append({'epoch': epoch + 1, 'train_loss': epoch_loss / max(1, n_seen)})

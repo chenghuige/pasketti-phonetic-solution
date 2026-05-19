@@ -2473,10 +2473,11 @@ def get_dl(mode='train', df=None):
 
     return out
 
+  num_workers = int(FLAGS.num_workers or 0)
   kwargs = {
-    'num_workers': FLAGS.num_workers,
-    'pin_memory': True,
-    'persistent_workers': FLAGS.persistent_workers,
+    'num_workers': num_workers,
+    'pin_memory': bool(getattr(FLAGS, 'pin_memory', True)),
+    'persistent_workers': bool(FLAGS.persistent_workers) and num_workers > 0,
     'collate_fn': collate_fn,
   }
 
