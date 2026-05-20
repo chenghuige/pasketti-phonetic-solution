@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 import numpy as np
+import pandas as pd
 import torch
 
 # --------------------------------------------------------------------------
@@ -76,11 +77,13 @@ except Exception:  # pragma: no cover
 
 def _ic_factory():
   """Return a no-op ``ic_once``/``ic_nth`` style helper."""
-  seen = set()
-  def f(*args, key=None, n=1):
+  seen = {}
+  def f(*args, key=None, n=0):
     k = key if key is not None else repr(args)
-    seen.setdefault(k, 0)  # type: ignore[attr-defined]
-    return ic(*args)
+    seen[k] = seen.get(k, 0) + 1
+    if seen[k] == 1 or (n and seen[k] % n == 0):
+      return ic(*args)
+    return args[0] if args else None
   return f
 
 
@@ -209,8 +212,78 @@ def prepare_project(model_dir: str | os.PathLike, model_name: str = '') -> None:
     (Path(model_dir) / 'MODEL_NAME').write_text(model_name)
 
 
-def set_fold(fold: int) -> None:
-  set('fold', fold)
+def set_fold(df_or_fold, folds=4, group_key=None, stratify_key=None,
+             force_sklearn=False, seed=1024, name='fold',
+             sgkf_compat=None) -> Any:
+  """Assign CV folds to a DataFrame, or store the active fold.
+
+  Upstream ``gezi.set_fold`` supports both usages.  The training pipeline uses
+  the DataFrame form during preprocessing; a few older call sites pass just an
+  integer fold to update global state.
+  """
+  del sgkf_compat  # sklearn's splitter is sufficient for this public shim.
+  if not hasattr(df_or_fold, 'columns'):
+    set('fold', int(df_or_fold))
+    return None
+
+  df = df_or_fold
+  assert folds, 'folds must be positive'
+  seed = int(seed or 1024)
+
+  def _group_values(frame, key):
+    if key is None or key == '':
+      return None
+    if isinstance(key, (list, tuple)):
+      return frame[list(key)].astype(str).agg('_'.join, axis=1).values
+    return frame[key].values
+
+  if stratify_key in (None, ''):
+    if group_key not in (None, ''):
+      groups = _group_values(df, group_key)
+      if force_sklearn:
+        from sklearn.model_selection import GroupKFold
+        splitter = GroupKFold(n_splits=folds)
+        splits = splitter.split(df, groups=groups)
+        fold_values = np.zeros(len(df), dtype=int)
+        for fold_idx, (_, val_idx) in enumerate(splits):
+          fold_values[val_idx] = fold_idx
+        df[name] = fold_values
+      else:
+        rng = np.random.default_rng(seed)
+        unique_groups = np.asarray(pd.Series(groups).drop_duplicates().tolist())
+        order = np.arange(len(unique_groups))
+        rng.shuffle(order)
+        chunks = np.array_split(order, folds)
+        group2fold = {}
+        for fold_idx, chunk in enumerate(chunks):
+          for idx in chunk:
+            group2fold[unique_groups[idx]] = fold_idx
+        df[name] = pd.Series(groups, index=df.index).map(group2fold).astype(int)
+    else:
+      rng = np.random.default_rng(seed)
+      order = np.arange(len(df))
+      rng.shuffle(order)
+      fold_values = np.zeros(len(df), dtype=int)
+      for fold_idx, chunk in enumerate(np.array_split(order, folds)):
+        fold_values[chunk] = fold_idx
+      df[name] = fold_values
+  else:
+    y = df[stratify_key].astype(str).values
+    fold_values = np.zeros(len(df), dtype=int)
+    if group_key in (None, ''):
+      from sklearn.model_selection import StratifiedKFold
+      splitter = StratifiedKFold(n_splits=folds, random_state=seed, shuffle=True)
+      splits = splitter.split(df, y)
+    else:
+      from sklearn.model_selection import StratifiedGroupKFold
+      groups = _group_values(df, group_key)
+      splitter = StratifiedGroupKFold(n_splits=folds, random_state=seed, shuffle=True)
+      splits = splitter.split(df, y, groups)
+    for fold_idx, (_, val_idx) in enumerate(splits):
+      fold_values[val_idx] = fold_idx
+    df[name] = fold_values
+
+  return df
 
 
 def init_wandb(model_name: str, wandb: bool = False) -> None:
