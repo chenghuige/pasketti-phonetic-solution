@@ -225,17 +225,21 @@ Each `flags/v*` file is incremental: `v17` chains all the way back to
 different backbones and fixed epoch counts; see `src/models.txt` for the
 exact final 11-model list.
 
-Equivalent explicit command:
+Equivalent explicit command. Set `DATA_PARENT` to the parent directory that contains
+`childrens-phonetic-asr/` and `childrens-ext-asr/`. If you staged data as
+`../input/` from the repository root, then from `src/` this is `../../input`.
+On my local machine it is `../../pasketti-phonetic/input`.
 
 ```bash
 cd src
+DATA_PARENT=${DATA_PARENT:-../../pasketti-phonetic/input}  # use ../../input for a fresh ../input staging layout
 PYTHONPATH=_compat:$PYTHONPATH CUDA_VISIBLE_DEVICES=0 python train.py \
   --flagfile=flags/v17 \
   --mn=v17.fold0 \
   --fold=0 \
-  --root=../../input/childrens-phonetic-asr \
-  --ext_root=../../input/childrens-ext-asr \
-  --eval_ext_root=../../input/childrens-ext-asr
+  --root=$DATA_PARENT/childrens-phonetic-asr \
+  --ext_root=$DATA_PARENT/childrens-ext-asr \
+  --eval_ext_root=$DATA_PARENT/childrens-ext-asr
 ```
 
 ### 3.4 Full 11-model reproduction scripts
