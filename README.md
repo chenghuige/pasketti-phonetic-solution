@@ -39,7 +39,7 @@ This public release is split into two artifacts:
 
 If you want the exact published inference path, you do not need to retrain
 the ensemble from scratch. Download the released weights, stage the
-competition data under `../input/pasketti/`, and build the submission
+competition data under `../input/childrens-phonetic-asr/`, and build the submission
 bundle directly.
 
 ---
@@ -140,13 +140,79 @@ For the full training path, plan for:
 
 ```bash
 make setup          # pip install -r requirements.txt
-make data           # prints the expected layout under ../input/pasketti
+make data           # prints the expected .flac/jsonl layout under ../input/
 make smoke          # import-only sanity check, no GPU required
 ```
 
-The competition data is expected under `../input/pasketti/` (audio in
-`audio/<id>.wav`, plus `train.csv` and `submission_format.csv`). Symlink
-or set `DATA_DIR` to point elsewhere.
+The training code reads the official `.flac` files directly through
+`soundfile` / `librosa`; no `.wav` conversion step is used. The most
+reliable setup is to stage every dataset under one shared `input/` parent
+with the exact directory and file names below.
+
+Expected training-data layout:
+
+```text
+../input/
+├── childrens-phonetic-asr/                 # official phonetic-track data
+│   ├── train_phon_transcripts.jsonl
+│   ├── audio.html                          # optional, if present in the download
+│   └── audio/
+│       └── <utterance_id>.flac
+├── childrens-ext-asr/                      # official EXT/TalkBank data used here
+│   ├── train_phon_transcripts.jsonl
+│   ├── train_word_transcripts.jsonl
+│   ├── audio.html                          # optional, if present in the download
+│   └── audio/
+│       └── <utterance_id>.flac
+├── childrens-word-asr/                     # official word-track labels for cross-label training
+│   ├── train_word_transcripts.jsonl
+│   └── audio/
+│       └── <utterance_id>.flac
+├── childrens-classnoise-asr/               # classroom-noise augmentation clips
+│   └── audio/
+│       └── <noise_id>.flac
+└── fold_align_phonetic.json                # optional fold-alignment helper, if available
+```
+
+Only `childrens-phonetic-asr/` is strictly required for a minimal smoke
+training run. The released 11-model recipe and tree-reranker reproduction
+use the EXT data and cross-label/auxiliary resources as shown above,
+especially `childrens-ext-asr/train_word_transcripts.jsonl` and
+`childrens-word-asr/train_word_transcripts.jsonl`.
+
+If your files live elsewhere, either symlink those directories or pass
+`DATA_DIR=/path/to/childrens-phonetic-asr EXT_DATA_DIR=/path/to/childrens-ext-asr`
+to the `make` targets. On my local machine, the same datasets are staged in
+the sibling development checkout and are auto-detected by the reproduction
+scripts and `make data`:
+
+```text
+../pasketti-phonetic/input/
+├── childrens-classnoise-asr/
+├── childrens-ext-asr/
+├── childrens-phonetic-asr/
+├── childrens-word-asr/
+├── childrens-pseudo-ipa/
+├── childrens-pseudo-ipa-dd/
+├── childrens-pseudo-ipa2/
+└── fold_align_phonetic.json
+```
+
+Example staging commands for a fresh checkout:
+
+```bash
+mkdir -p ../input
+ln -s /path/to/childrens-phonetic-asr   ../input/childrens-phonetic-asr
+ln -s /path/to/childrens-ext-asr        ../input/childrens-ext-asr
+ln -s /path/to/childrens-word-asr       ../input/childrens-word-asr
+ln -s /path/to/childrens-classnoise-asr ../input/childrens-classnoise-asr
+# Optional:
+ln -s /path/to/fold_align_phonetic.json ../input/fold_align_phonetic.json
+```
+
+For local inference in the DrivenData runtime, keep the runtime's normal
+structure with `submission_format.jsonl` and `audio/<utterance_id>.flac`
+under `/code_execution/data`.
 
 ### 3.3 Train a single model (fold 0)
 
@@ -156,19 +222,82 @@ make train-fold0 GPU=1            # -> working/offline/17/v17.fold0/0/
 
 Each `flags/v*` file is incremental: `v17` chains all the way back to
 `base` via `--flagfile`. The full ensemble retrains the same recipe with
-different backbones and seeds — see `src/models.txt` for the exact list
-and use the corresponding `--flagfile` and `--mn` from each line's
-suffix.
+different backbones and fixed epoch counts; see `src/models.txt` for the
+exact final 11-model list.
 
-For the production submission, every model is also re-trained with
-`--online` (no held-out fold) using `make train-online`.
-
-### 3.4 Build the ensemble + reranker
-
-After all 11 models in `src/models.txt` are trained:
+Equivalent explicit command:
 
 ```bash
-make ensemble                     # cross-model rescore + CatBoost reranker
+cd src
+PYTHONPATH=_compat:$PYTHONPATH CUDA_VISIBLE_DEVICES=0 python train.py \
+  --flagfile=flags/v17 \
+  --mn=v17.fold0 \
+  --fold=0 \
+  --root=../../input/childrens-phonetic-asr \
+  --ext_root=../../input/childrens-ext-asr \
+  --eval_ext_root=../../input/childrens-ext-asr
+```
+
+### 3.4 Full 11-model reproduction scripts
+
+The repository includes helper scripts under `src/` that reproduce the
+published 11 acoustic models and the second-stage tree reranker. They use
+the model names in `src/models.txt` and automatically add the eval/export
+flags needed by the reranker (`--eval_ext_full`, `--save_logprobs`,
+`--save_dual_head_preds`, `--save_pred_score`).
+
+First check that the expected data paths are visible:
+
+```bash
+make data
+```
+
+Then run the scripts from `src/`:
+
+```bash
+cd src
+
+# 1) Offline fold-0 models used to train the tree reranker.
+#    Outputs: working/offline/9/<model_name>/0/{model.pt,flags.json,eval.csv,ctc_logprobs.pt,...}
+bash reproduce_offline_fold0.sh
+
+# 2) Second-stage CatBoost reranker trained from the offline fold-0 artifacts.
+#    Outputs: working/offline/9/ensemble.feat_nemo_group.feat_tdt_group.feat_wavlm_group.0407/0/
+#    and copies release artifacts to src/tree_reranker/ by default.
+bash reproduce_tree_reranker.sh
+
+# 3) Final online/full-data acoustic models for submission packaging.
+#    Outputs: working/online/9/<model_name>/0/
+bash reproduce_online.sh
+```
+
+Useful environment variables:
+
+```bash
+GPU=1 bash reproduce_offline_fold0.sh
+FORCE=1 bash reproduce_offline_fold0.sh       # rerun even if model.pt exists
+DRY_RUN=1 bash reproduce_offline_fold0.sh     # print commands only
+
+ROOT=/path/to/childrens-phonetic-asr \
+EXT_ROOT=/path/to/childrens-ext-asr \
+bash reproduce_offline_fold0.sh
+
+EXTRA_ARGS="--bs=1 --eval_bs=1 --num_workers=0" \
+bash reproduce_offline_fold0.sh               # smoke/debug run
+
+COPY_TO_RELEASE=0 bash reproduce_tree_reranker.sh
+```
+
+`reproduce_online.sh` and `reproduce_offline_fold0.sh` auto-detect data in
+`../input/`, `../../input/`, `../../pasketti-phonetic/input/`, and
+`../../pasketti/input/` unless `ROOT` / `EXT_ROOT` are provided explicitly.
+
+### 3.5 Build the ensemble + reranker
+
+After all 11 models in `src/models.txt` are trained and `src/tree_reranker/`
+contains the saved CatBoost artifacts:
+
+```bash
 make pack                         # bundles submission.zip from src/models.txt
 ```
 
