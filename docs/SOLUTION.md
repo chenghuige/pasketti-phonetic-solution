@@ -135,26 +135,33 @@ Download competition data from [DrivenData](https://www.drivendata.org/competiti
 
 ```
 pikachu/projects/drivendata/input/childrens-phonetic-asr/
-├── train_metadata.csv
-├── train_audio/
-├── test_metadata.csv
-├── test_audio/
-└── talkbank/           # EXT data
-    ├── talkbank_metadata.csv
-    └── talkbank_audio/
+├── train_phon_transcripts.jsonl
+└── audio/
+    └── <utterance_id>.flac
+
+pikachu/projects/drivendata/input/childrens-ext-asr/   # optional TalkBank / EXT data
+├── train_phon_transcripts.jsonl
+└── audio/
+    └── <utterance_id>.flac
 ```
+
+The training code reads the official `.flac` files directly; no `.wav`
+conversion step is required. If the data lives elsewhere, either symlink these
+directories or pass `DATA_DIR` and `EXT_DATA_DIR` to the Makefile targets.
 
 ### 6. Download Pretrained Model Weights
 
-Download the 11 trained model weights and tree reranker from cloud storage.
-At the time of writing, the public download location has not been published
-yet, so reviewers cannot reproduce the final leaderboard inference without
-either retraining the models or receiving the private weight bundle.
+Download the 11 trained model weights and tree reranker from the public
+Hugging Face model repository:
+
+```bash
+HF_REPO_ID=huigecheng/pasketti-phonetic-weights bash scripts/download_weights.sh
+```
 
 Place model weights in:
 
 ```
-pikachu/projects/drivendata/pasketti-phonetic/working/online/9/
+pikachu/projects/drivendata/pasketti-phonetic-solution/working/online/17/
 ├── v17.backbone-wavlm-large.ep3.5.leval/        # WavLM model 1
 ├── v16.backbone-wavlm-large.dual_bpe.mix4.eval/ # WavLM model 2
 ├── v16.backbone-wavlm-large.dual_bpe.mix4.mix_csss.ep4.5.eval/  # WavLM model 3
@@ -197,26 +204,31 @@ Total size: ~15 GB (11 models × ~1.2 GB each + reranker).
 ### Single Model Training (NeMo Parakeet-TDT)
 
 ```bash
-cd pikachu/projects/drivendata/pasketti-phonetic/src
+cd pikachu/projects/drivendata/pasketti-phonetic-solution
 
-# Train fold 0 with v16 config (NeMo TDT + dual BPE head)
-CUDA_VISIBLE_DEVICES=1 python main.py --flagfile=flags/v16 \
-    --mn=v16.dual_bpe.tdt_only --tdt_only
+# Train fold 0 with the public standalone entry point
+make train-fold0 GPU=1
 
-# Train with concat mix augmentation (mix 4 clips)
-CUDA_VISIBLE_DEVICES=1 python main.py --flagfile=flags/v16 \
-    --mn=v16.dual_bpe.mix4 --aug_mix=4
+# Equivalent explicit command
+cd src
+PYTHONPATH=_compat:$PYTHONPATH CUDA_VISIBLE_DEVICES=1 python train.py \
+    --flagfile=flags/v17 \
+    --mn=v17.fold0 \
+    --fold=0 \
+    --root=../../input/childrens-phonetic-asr \
+    --ext_root=../../input/childrens-ext-asr \
+    --eval_ext_root=../../input/childrens-ext-asr
 
 # Full train (all data, no validation holdout) for final submission
-CUDA_VISIBLE_DEVICES=1 python main.py --flagfile=flags/v16 \
-    --mn=v16.dual_bpe.tdt_only.eval --online
+make train-online GPU=1
 ```
 
 ### Single Model Training (WavLM-Large)
 
 ```bash
 # WavLM models are training-expensive (~5h/epoch on Pro 6000)
-CUDA_VISIBLE_DEVICES=1 python main.py --flagfile=flags/v16 \
+cd pikachu/projects/drivendata/pasketti-phonetic-solution/src
+PYTHONPATH=_compat:$PYTHONPATH CUDA_VISIBLE_DEVICES=1 python train.py --flagfile=flags/v16 \
     --backbone=microsoft/wavlm-large --model=wav2vec2 \
     --mn=v16.backbone-wavlm-large.dual_bpe --ep=5
 ```
@@ -241,10 +253,39 @@ Key flags introduced at each stage:
 
 ### Train Tree Reranker (after all models are trained)
 
+In the standalone release, the recommended reproduction path is to use the
+helper scripts from `src/` rather than calling the historical internal entry
+point directly:
+
 ```bash
-# Generate N-best candidates + CTC scores for all 11 models on fold 0
-python ensemble.py --mode=tree_ranker --models_file=models.txt --fold=0
+cd pikachu/projects/drivendata/pasketti-phonetic-solution/src
+
+# Step 1: build offline fold-0 eval artifacts for all 11 models
+bash reproduce_offline_fold0.sh
+
+# Step 2: train the CatBoost reranker from those offline artifacts
+bash reproduce_tree_reranker.sh
 ```
+
+A healthy reranker run should print the selected offline artifact root, confirm
+that all 11 model eval directories were found, build the feature table, run
+5-fold CatBoost CV, and finally copy release artifacts into `src/tree_reranker/`.
+Typical milestones look like:
+
+```text
+Using offline artifact root: ../../pasketti-phonetic/working/offline/9
+Found 11 model eval dirs; 8 have ctc_logprobs.pt.
+Built 1068582 candidate rows for 30645 utterances
+Dataset: 1068582 rows, 212 features
+--- Tree Reranker FullAvg (cb, 5-fold models) Results ---
+Overall CER: 0.26086
+Copied tree reranker artifacts to tree_reranker
+```
+
+Some warnings are expected during this step and are not fatal, for example
+missing optional `aux_meta_preds.pt`, missing optional `model.pt`, or missing
+`ctc_logprobs.pt` for some TDT-only models. The hard requirements are that each
+model has an `eval.csv`, and that at least one model provides `ctc_logprobs.pt`.
 
 ---
 
@@ -255,22 +296,10 @@ python ensemble.py --mode=tree_ranker --models_file=models.txt --fold=0
 This is how the competition platform runs inference:
 
 ```bash
-cd pikachu/projects/drivendata/pasketti-phonetic/src
+cd pikachu/projects/drivendata/pasketti-phonetic-solution
 
 # Step 1: Pack the 11-model ensemble + tree reranker into submission.zip
-bash pack_ensemble.sh \
-    v17.backbone-wavlm-large.ep3.5.leval \
-    v16.backbone-wavlm-large.dual_bpe.mix4.eval \
-    v16.backbone-wavlm-large.dual_bpe.mix4.mix_csss.ep4.5.eval \
-    v16.backbone-wavlm-large.dual_bpe.eval \
-    v16.dual_bpe.tdt_only.eval \
-    v16.dual_bpe.mix_csss.tdt_only.eval \
-    v16.dual_bpe.mix2.mix_csss.tdt_only.eval \
-    v16.dual_bpe.wo_scale-2.eval \
-    v16.aux_loss.dual_bpe.eval \
-    v16.dual_bpe.mix4.eval \
-    v16.dual_bpe.mix2.eval \
-    --mode tree_reranker
+make pack
 
 # Step 2: Upload submission.zip to DrivenData
 python dd_submit.py submission.zip
@@ -287,20 +316,19 @@ Inside the Docker container, `submit.py` runs the pipeline:
 ### Method 2: Local Inference on New Data
 
 ```bash
-cd pikachu/projects/drivendata/pasketti-phonetic/src
+cd pikachu/projects/drivendata/pasketti-phonetic-solution/src
 
 # Run full ensemble inference on any audio data in competition format
 python ensemble.py --mode=tree_reranker \
     --models_file=models.txt \
-    --data_dir=../input/childrens-phonetic-asr/ \
+    --data_dir=../../input/childrens-phonetic-asr/ \
     --output=submission.csv
 ```
 
 ### Model Weights Access
 
-All 11 trained model weights + tree reranker are required for the final
-submission. The repository is prepared to consume them directly, but the public
-download URL has not been published yet.
+All 11 trained model weights + tree reranker are available at
+<https://huggingface.co/huigecheng/pasketti-phonetic-weights>.
 
 ---
 

@@ -311,6 +311,50 @@ needed to retrain the tree reranker from scratch. To run
 `reproduce_tree_reranker.sh`, first generate those artifacts with
 `reproduce_offline_fold0.sh`.
 
+### 3.4.1 What a successful `reproduce_tree_reranker.sh` run looks like
+
+A healthy run usually starts with an auto-detected artifact root such as:
+
+```text
+Using offline artifact root: ../../pasketti-phonetic/working/offline/9
+Found 11 model eval dirs; 8 have ctc_logprobs.pt.
++ PYTHONPATH=_compat:$PYTHONPATH CUDA_VISIBLE_DEVICES=0 python ensemble.py --ensemble_working_dir=../../pasketti-phonetic/working/offline/9 --feat_nemo_group --feat_tdt_group --feat_wavlm_group --mns=.0407
+```
+
+Then `ensemble.py` should report that it loaded all 11 model directories,
+built the reranker feature table, and started 5-fold CatBoost training. Key
+milestones from a successful reproduction look like:
+
+```text
+Loaded 11 models from /.../src/models.txt
+Built 1068582 candidate rows for 30645 utterances
+Dataset: 1068582 rows, 212 features
+Parallel tree CV enabled: jobs=5, total_cores=128, per_job_tree_threads=25
+--- Tree Reranker (cb, 5-fold) Results ---
+Overall CER: 0.26307
+--- Tree Reranker FullAvg (cb, 5-fold models) Results ---
+Overall CER: 0.26086
+Copied tree reranker artifacts to tree_reranker
+```
+
+The script writes the trained reranker under
+`$RUN_ROOT/ensemble.feat_nemo_group.feat_tdt_group.feat_wavlm_group.0407/0/`
+and, unless `COPY_TO_RELEASE=0`, also copies the release-time files into
+`src/tree_reranker/` for `make pack`.
+
+Some warnings in the log are expected and do **not** mean the run failed:
+
+- missing optional `aux_meta_preds.pt`
+- missing optional `model.pt`
+- missing optional `ctc_logprobs.pt` for some TDT-only models
+- CatBoost message `Pairwise losses don't support object weights.`
+- CUDA factory registration messages like `Unable to register cuDNN factory`
+
+The hard requirements are simpler: every model must have `eval.csv`, and at
+least one model must have `ctc_logprobs.pt`. If the script prints
+`Run first: bash reproduce_offline_fold0.sh`, then the required offline fold-0
+artifacts were not found at the selected `RUN_ROOT`.
+
 ### 3.5 Build the ensemble + reranker
 
 After all 11 models in `src/models.txt` are trained and `src/tree_reranker/`
