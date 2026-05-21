@@ -262,7 +262,7 @@ Then run the scripts from `src/`:
 cd src
 
 # 1) Offline fold-0 models used to train the tree reranker.
-#    Outputs: working/offline/9/<model_name>/0/{model.pt,flags.json,eval.csv,ctc_logprobs.pt,...}
+#    Outputs: working/offline/9/<model_name>/0/{eval.csv,ctc_logprobs.pt,dual_head_preds.pt,...}
 bash reproduce_offline_fold0.sh
 
 # 2) Second-stage CatBoost reranker trained from the offline fold-0 artifacts.
@@ -295,6 +295,13 @@ COPY_TO_RELEASE=0 bash reproduce_tree_reranker.sh
 `reproduce_online.sh` and `reproduce_offline_fold0.sh` auto-detect data in
 `../input/`, `../../input/`, `../../pasketti-phonetic/input/`, and
 `../../pasketti/input/` unless `ROOT` / `EXT_ROOT` are provided explicitly.
+
+Note that the Hugging Face release contains the final online/full-data ASR
+checkpoints plus the already-trained `src/tree_reranker/` artifacts used by
+`make pack`. It does **not** contain the large offline fold-0 eval artifacts
+needed to retrain the tree reranker from scratch. To run
+`reproduce_tree_reranker.sh`, first generate those artifacts with
+`reproduce_offline_fold0.sh`.
 
 ### 3.5 Build the ensemble + reranker
 
