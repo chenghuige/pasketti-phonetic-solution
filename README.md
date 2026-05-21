@@ -342,6 +342,9 @@ The script writes the trained reranker under
 and, unless `COPY_TO_RELEASE=0`, also copies the release-time files into
 `src/tree_reranker/` for `make pack`.
 
+For a full line-by-line reference from a successful run, see
+[`docs/TREE_RERANKER_SUCCESS_LOG.md`](docs/TREE_RERANKER_SUCCESS_LOG.md).
+
 Some warnings in the log are expected and do **not** mean the run failed:
 
 - missing optional `aux_meta_preds.pt`

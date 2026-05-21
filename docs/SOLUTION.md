@@ -287,6 +287,9 @@ missing optional `aux_meta_preds.pt`, missing optional `model.pt`, or missing
 `ctc_logprobs.pt` for some TDT-only models. The hard requirements are that each
 model has an `eval.csv`, and that at least one model provides `ctc_logprobs.pt`.
 
+For a full line-by-line successful run log, see
+[`TREE_RERANKER_SUCCESS_LOG.md`](TREE_RERANKER_SUCCESS_LOG.md).
+
 ---
 
 ## Run Inference
