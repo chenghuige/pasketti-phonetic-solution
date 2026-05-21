@@ -6,6 +6,8 @@ HF_REPO_ID="${HF_REPO_ID:-huigecheng/pasketti-phonetic-weights}"
 REVISION="${REVISION:-main}"
 TARGET_DIR="${TARGET_DIR:-$REPO_ROOT/working/online/17}"
 TREE_TARGET_DIR="${TREE_TARGET_DIR:-$REPO_ROOT/src/tree_reranker}"
+DOWNLOAD_OFFLINE="${DOWNLOAD_OFFLINE:-0}"
+OFFLINE_TARGET_DIR="${OFFLINE_TARGET_DIR:-$REPO_ROOT/working/offline/9}"
 
 usage() {
   cat <<'EOF'
@@ -17,6 +19,8 @@ Optional environment variables:
   REVISION         Branch / tag / commit to download from (default: main)
   TARGET_DIR       Destination for ASR checkpoints (default: working/online/17)
   TREE_TARGET_DIR  Destination for reranker artifacts (default: src/tree_reranker)
+  DOWNLOAD_OFFLINE Set to 1 to also download offline fold-0 reranker training artifacts
+  OFFLINE_TARGET_DIR Destination for offline artifacts (default: working/offline/9)
 
 Expected Hugging Face repo layout:
   online/17/<model_name>/model.pt
@@ -24,6 +28,8 @@ Expected Hugging Face repo layout:
   online/17/<model_name>/nemo_model_slim.nemo
   tree_reranker/reranker_meta.json
   tree_reranker/tree_cb_fold0/model.pkl
+  offline/9/<model_name>/0/eval.csv              # optional, for reranker reproduction
+  offline/9/<model_name>/0/ctc_logprobs.pt       # optional, for reranker reproduction
   ...
 EOF
 }
@@ -55,6 +61,19 @@ huggingface-cli download "$HF_REPO_ID" \
   --local-dir "$REPO_ROOT/src" \
   --include 'tree_reranker/*'
 
+if [[ "$DOWNLOAD_OFFLINE" == "1" ]]; then
+  echo "==> Downloading optional offline fold-0 reranker training artifacts"
+  mkdir -p "$REPO_ROOT/working"
+  huggingface-cli download "$HF_REPO_ID" \
+    --repo-type model \
+    --revision "$REVISION" \
+    --local-dir "$REPO_ROOT/working" \
+    --include 'offline/9/*'
+fi
+
 echo "==> Done"
 echo "  checkpoints: $TARGET_DIR"
 echo "  reranker:    $TREE_TARGET_DIR"
+if [[ "$DOWNLOAD_OFFLINE" == "1" ]]; then
+  echo "  offline:     $OFFLINE_TARGET_DIR"
+fi

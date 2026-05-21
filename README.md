@@ -343,7 +343,14 @@ python -m pip install -r requirements.txt
 HF_REPO_ID=huigecheng/pasketti-phonetic-weights bash scripts/download_weights.sh
 ```
 
-After that, the repo should contain:
+To additionally download the optional offline fold-0 artifacts used to
+retrain the tree reranker without re-running the 11 acoustic models, use:
+
+```bash
+DOWNLOAD_OFFLINE=1 HF_REPO_ID=huigecheng/pasketti-phonetic-weights bash scripts/download_weights.sh
+```
+
+After the default download, the repo should contain:
 
 ```
 working/online/17/<model_name>/model.pt
@@ -376,6 +383,12 @@ tree_reranker/tree_cb_fold1/model.pkl
 tree_reranker/tree_cb_fold2/model.pkl
 tree_reranker/tree_cb_fold3/model.pkl
 tree_reranker/tree_cb_fold4/model.pkl
+
+# optional, only when DOWNLOAD_OFFLINE=1 was used:
+offline/9/<model_name>/0/eval.csv
+offline/9/<model_name>/0/ctc_logprobs.pt
+offline/9/<model_name>/0/dual_head_preds.pt
+offline/9/<model_name>/0/flags.json
 ```
 
 To assemble the official DrivenData runtime bundle from the public release:
@@ -391,6 +404,17 @@ the original training workspace to Hugging Face with:
 ```bash
 HF_REPO_ID=huigecheng/pasketti-phonetic-weights UPLOAD_NOW=1 bash scripts/upload_hf_weights.sh
 ```
+
+To also stage and upload the optional offline fold-0 reranker-training
+artifacts, maintainers can run:
+
+```bash
+INCLUDE_OFFLINE_ARTIFACTS=1 HF_REPO_ID=huigecheng/pasketti-phonetic-weights UPLOAD_NOW=1 bash scripts/upload_hf_weights.sh
+```
+
+`INCLUDE_OFFLINE_MODEL_PT=1` can also copy offline `model.pt` files, but
+those checkpoints are much larger and are not needed by the default
+`reproduce_tree_reranker.sh` path.
 
 The GitHub repository intentionally does not commit the large ASR
 checkpoints, so the Hugging Face model repo is the authoritative source for
