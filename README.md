@@ -290,7 +290,15 @@ EXTRA_ARGS="--bs=1 --eval_bs=1 --num_workers=0" \
 bash reproduce_offline_fold0.sh               # smoke/debug run
 
 COPY_TO_RELEASE=0 bash reproduce_tree_reranker.sh
+
+# Use existing offline artifacts from a sibling development checkout:
+RUN_ROOT=../../pasketti-phonetic/working/offline/9 bash reproduce_tree_reranker.sh
 ```
+
+`reproduce_tree_reranker.sh` auto-detects offline fold-0 artifacts in
+`../working/offline/9`, `../../pasketti-phonetic/working/offline/9`, and
+`../../pasketti/working/offline/9`; set `RUN_ROOT` explicitly if your artifacts
+live elsewhere.
 
 `reproduce_online.sh` and `reproduce_offline_fold0.sh` auto-detect data in
 `../input/`, `../../input/`, `../../pasketti-phonetic/input/`, and

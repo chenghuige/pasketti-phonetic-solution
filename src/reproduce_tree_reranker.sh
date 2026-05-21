@@ -23,21 +23,45 @@
 # Env:
 #   GPU=0
 #   PYTHON=python
+#   RUN_ROOT=../working/offline/9  # override offline artifact root if needed
 #   EXTRA_ARGS=""      # appended to ensemble.py command
 #   COPY_TO_RELEASE=1  # copy artifacts to src/tree_reranker for pack_submission.sh
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
+resolve_run_root() {
+  if [[ -n "${RUN_ROOT:-}" ]]; then
+    echo "$RUN_ROOT"
+    return
+  fi
+  local first_model
+  first_model="$(grep -v '^#' models.txt | sed '/^$/d' | head -1 | xargs || true)"
+  local candidates=(
+    "../working/offline/9"
+    "../../pasketti-phonetic/working/offline/9"
+    "../../pasketti/working/offline/9"
+  )
+  local root
+  for root in "${candidates[@]}"; do
+    if [[ -n "$first_model" && -s "$root/$first_model/0/eval.csv" ]]; then
+      echo "$root"
+      return
+    fi
+  done
+  echo "../working/offline/9"
+}
+
 PYTHON="${PYTHON:-python}"
 GPU="${GPU:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 EXTRA_ARGS="${EXTRA_ARGS:-}"
 COPY_TO_RELEASE="${COPY_TO_RELEASE:-1}"
-RUN_ROOT="../working/offline/9"
+RUN_ROOT="$(resolve_run_root)"
 TREE_MNS="ensemble.feat_nemo_group.feat_tdt_group.feat_wavlm_group.0407"
 TREE_DIR="${TREE_DIR:-$RUN_ROOT/$TREE_MNS/0}"
 RELEASE_TREE_DIR="${RELEASE_TREE_DIR:-tree_reranker}"
+echo "Using offline artifact root: $RUN_ROOT"
 
 missing=0
 n_models=0
@@ -78,7 +102,7 @@ if [[ "$n_logprobs" == "0" ]]; then
 fi
 echo "Found $n_models model eval dirs; $n_logprobs have ctc_logprobs.pt."
 
-cmd="PYTHONPATH=_compat:\$PYTHONPATH CUDA_VISIBLE_DEVICES=$GPU $PYTHON ensemble.py --feat_nemo_group --feat_tdt_group --feat_wavlm_group --mns=.0407"
+cmd="PYTHONPATH=_compat:\$PYTHONPATH CUDA_VISIBLE_DEVICES=$GPU $PYTHON ensemble.py --ensemble_working_dir=$RUN_ROOT --feat_nemo_group --feat_tdt_group --feat_wavlm_group --mns=.0407"
 if [[ -n "$EXTRA_ARGS" ]]; then
   cmd="$cmd $EXTRA_ARGS"
 fi
