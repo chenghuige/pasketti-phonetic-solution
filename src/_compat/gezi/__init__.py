@@ -9,12 +9,13 @@ API summary (mirrors the upstream gezi names):
   - Globals dict:        ``set(key, val)`` / ``get(key, default=None)``
   - Timer:               ``Timer().elapsed_minutes()``
   - Filesystem helpers:  ``try_mkdir``, ``try_create``
-  - Project / FLAGS:     ``init_flags``, ``restore_configs``,
-                         ``prepare_project``, ``save_globals``,
-                         ``set_fold``, ``batch_size``, ``eval_batch_size``
+  - Project / FLAGS:     ``FLAGS``, ``init_flags``, ``restore_configs``,
+                        ``prepare_project``, ``save_globals``,
+                        ``set_fold``, ``batch_size``, ``eval_batch_size``
   - Model I/O:           ``load_weights``, ``save_model``
   - Misc:                ``tree``, ``ic_once``, ``ic_nth``,
-                         ``oof_metrics`` (no-op stub)
+                        ``oof_metrics`` (no-op stub)
+
 
 The module is intentionally tiny — under ~250 lines — and has no
 hidden side-effects beyond installing ``loguru`` as the default logger
@@ -33,6 +34,12 @@ from typing import Any, Callable, Optional
 import numpy as np
 import pandas as pd
 import torch
+
+# --------------------------------------------------------------------------
+# absl FLAGS re-export (some modules do ``from gezi import FLAGS``).
+# --------------------------------------------------------------------------
+from absl import flags as _absl_flags
+FLAGS = _absl_flags.FLAGS
 
 # --------------------------------------------------------------------------
 # Logging: prefer loguru if available, otherwise stdlib.
